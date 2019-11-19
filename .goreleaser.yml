@@ -1,0 +1,113 @@
+# This is an example goreleaser.yaml file with some sane defaults.
+# Make sure to check the documentation at http://goreleaser.com
+project_name: qlc-miner
+env:
+  - GO111MODULE=on
+  - GOPROXY=https://goproxy.cn
+before:
+  hooks:
+    # - go get -u github.com/golangci/golangci-lint/cmd/golangci-lint
+    # you may remove this if you don't use vgo
+    - go mod download
+    # you may remove this if you don't need go generate
+    # - go generate ./..
+builds:
+# Miner
+- id: gqlc-miner-darwin
+  ldflags: -X main.Version={{ .Version }} -X main.GitRev={{ .ShortCommit }} -X main.BuildTime={{ .Date }} -X main.Mode=MainNet
+  binary: gqlc-miner
+  env:
+    - CGO_ENABLED=1
+    - CC=o64-clang
+    - CXX=o64-clang++
+  main: ./
+  goos:
+    - darwin
+  goarch:
+    - amd64
+- id: gqlc-miner-linux
+  ldflags: -X main.Version={{ .Version }} -X main.GitRev={{ .ShortCommit }} -X main.BuildTime={{ .Date }} -X main.Mode=MainNet
+  binary: gqlc-miner
+  env:
+    - CGO_ENABLED=1
+  main: ./
+  goos:
+    - linux
+  goarch:
+    - amd64
+- id: gqlc-miner-windows-x64
+  ldflags: -X main.Version={{ .Version }} -X main.GitRev={{ .ShortCommit }} -X main.BuildTime={{ .Date }} -X main.Mode=MainNet
+  binary: gqlc-miner
+  env:
+    - CGO_ENABLED=1
+    - CC=x86_64-w64-mingw32-gcc
+    - CXX=x86_64-w64-mingw32-g++
+  main: ./
+  goos:
+    - windows
+  goarch:
+    - amd64
+
+archives:
+- format: tar.gz
+  format_overrides:
+    - goos: windows
+      format: zip
+  name_template: "{{ .Binary }}-v{{ .Version }}-{{ .ShortCommit }}-{{ .Os }}-{{ .Arch }}"
+  replacements:
+    amd64: x64
+    386: i386
+    darwin: macOS
+    linux: Linux
+    windows: Windows
+  files:
+  - README.md
+  - LICENSE
+
+checksum:
+  name_template: "{{ .ProjectName }}_checksums.txt"
+
+snapshot:
+  name_template: SNAPSHOT-{{.ShortCommit}}
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
+    - '^chore:'
+    - Merge pull request
+    - Merge branch
+
+# signs:
+#   -
+#     # name of the signature file.
+#     # '${artifact}' is the path to the artifact that should be signed.
+#     #
+#     # defaults to `${artifact}.sig`
+#     signature: "${artifact}_sig"
+
+#     # command line arguments for the command
+#     #
+#     # to sign with a specific key use
+#     # args: ["-u", "<key id, fingerprint, email, ..>", "--output", "${signature}", "--detach-sign", "${artifact}"]
+#     #
+#     # defaults to `["--output", "${signature}", "--detach-sign", "${artifact}"]`
+#     args: ["-u", "yong.gu@qlink.mobi", "--output", "${signature}", "${artifact}"]
+
+#     # which artifacts to sign
+#     #
+#     #   checksum: only checksum file(s)
+#     #   all:      all artifacts
+#     #   none:     no signing
+#     #
+#     # defaults to `none`
+#     artifacts: all
+
+release:
+  github:
+    owner: qlcchain
+    name: qlc-miner
+
+  prerelease: auto
