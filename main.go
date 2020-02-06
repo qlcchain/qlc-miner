@@ -27,6 +27,7 @@ var flagMiner string
 var flagAlgo string
 var flagAuxPow bool
 var flagVersion bool
+var flagDebug bool
 
 var extraNonce1 uint32
 var extraNonce2 uint64
@@ -39,11 +40,16 @@ func main() {
 	flag.StringVar(&flagAlgo, "algo", "SHA256D", "algo name, such as SHA256D/X11/SCRYPT")
 	flag.BoolVar(&flagAuxPow, "auxpow", false, "enable AuxPOW")
 	flag.BoolVar(&flagVersion, "version", false, "print version info")
+	flag.BoolVar(&flagDebug, "debug", false, "set log level to debug")
 	flag.Parse()
 
 	if flagVersion {
 		fmt.Println(VersionString())
 		return
+	}
+
+	if flagDebug {
+		logrus.SetLevel(logrus.DebugLevel)
 	}
 
 	minerAddr, err := types.HexToAddress(flagMiner)
@@ -54,7 +60,7 @@ func main() {
 
 	nodeClient, err := rpc.Dial(flagNodeUrl)
 	if err != nil {
-		logrus.Errorln(err)
+		logrus.Errorln("rpc dial error:", err)
 		return
 	}
 	defer nodeClient.Close()
@@ -69,7 +75,7 @@ func main() {
 		getWorkRsp := new(qlcsdk.PovApiGetWork)
 		err = nodeClient.Call(&getWorkRsp, "pov_getWork", minerAddr, flagAlgo)
 		if err != nil {
-			logrus.Errorln(err)
+			logrus.Errorln("getWork error:", err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
@@ -89,7 +95,7 @@ func main() {
 		logrus.Infof("submitWork request: %s", util.ToString(submitWorkReq))
 		err = nodeClient.Call(nil, "pov_submitWork", &submitWorkReq)
 		if err != nil {
-			logrus.Errorln(err)
+			logrus.Errorln("submitWork error:", err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
@@ -145,11 +151,16 @@ func doWorkBySelf(nodeClient *rpc.Client, minerAddr types.Address, getWorkRsp *q
 
 	povHeader.BasHdr.MerkleRoot = merkle.CalcCoinbaseMerkleRoot(&cbTxHash, getWorkRsp.MerkleBranch)
 
+	logrus.Debugf("AlogType: %d, AlgoEfficiency: %d", povHeader.GetAlgoType(), povHeader.GetAlgoEfficiency())
+
 	targetIntAlgo := types.CompactToBig(getWorkRsp.Bits)
 
-	lastCheckTm := time.Now()
+	startTm := time.Now()
+	lastCheckTm := startTm
 
-	for nonce := uint32(0); nonce < ^uint32(0); nonce++ {
+	nonce := uint32(rand.Int31())
+	tryCnt := 0
+	for ; nonce < ^uint32(0); nonce++ {
 		povHeader.BasHdr.Nonce = nonce
 
 		powHash := povHeader.ComputePowHash()
@@ -178,9 +189,19 @@ func doWorkBySelf(nodeClient *rpc.Client, minerAddr types.Address, getWorkRsp *q
 			}
 			lastCheckTm = time.Now()
 		}
+
+		if time.Now().After(startTm.Add(10 * time.Minute)) {
+			logrus.Infof("workHash %s abort because exhaust time", getWorkRsp.WorkHash)
+			return nil
+		}
+
+		tryCnt++
+		if tryCnt != 0 && tryCnt%1000000 == 0 {
+			logrus.Debugf("workHash %s try compute hash %d", getWorkRsp.WorkHash, tryCnt)
+		}
 	}
 
-	logrus.Infof("workHash %s exhaust nonce", getWorkRsp.WorkHash)
+	logrus.Infof("workHash %s abort because exhaust nonce", getWorkRsp.WorkHash)
 	return nil
 }
 
@@ -215,9 +236,12 @@ func doWorkByAuxPow(nodeClient *rpc.Client, minerAddr types.Address, getWorkRsp 
 	auxBlockHash := povHeader.ComputeHash()
 	auxPow := GenerateAuxPow(auxBlockHash)
 
-	lastCheckTm := time.Now()
+	startTm := time.Now()
+	lastCheckTm := startTm
 
-	for nonce := uint32(0); nonce < ^uint32(0); nonce++ {
+	nonce := uint32(rand.Int31())
+	tryCnt := 0
+	for ; nonce < ^uint32(0); nonce++ {
 		auxPow.ParBlockHeader.Nonce = nonce
 
 		powHash := auxPow.ComputePowHash(povHeader.GetAlgoType())
@@ -249,9 +273,19 @@ func doWorkByAuxPow(nodeClient *rpc.Client, minerAddr types.Address, getWorkRsp 
 			}
 			lastCheckTm = time.Now()
 		}
+
+		if time.Now().After(startTm.Add(10 * time.Minute)) {
+			logrus.Infof("workHash %s abort because exhaust time", getWorkRsp.WorkHash)
+			return nil
+		}
+
+		tryCnt++
+		if tryCnt != 0 && tryCnt%1000000 == 0 {
+			logrus.Debugf("workHash %s try compute hash %d", getWorkRsp.WorkHash, tryCnt)
+		}
 	}
 
-	logrus.Infof("workHash %s exhaust nonce", getWorkRsp.WorkHash)
+	logrus.Infof("workHash %s abort because exhaust nonce", getWorkRsp.WorkHash)
 	return nil
 }
 
@@ -259,7 +293,7 @@ func getLatestHeader(nodeClient *rpc.Client) *qlcsdk.PovApiHeader {
 	latestHeaderRsp := new(qlcsdk.PovApiHeader)
 	err := nodeClient.Call(latestHeaderRsp, "pov_getLatestHeader")
 	if err != nil {
-		logrus.Errorln(err)
+		logrus.Errorln("getLatestHeader error:", err)
 		return nil
 	}
 	return latestHeaderRsp
